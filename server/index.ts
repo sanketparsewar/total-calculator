@@ -12,12 +12,23 @@ app.use(express.json({ limit: '20mb' }));
 
 // Determine available cloud OCR provider from environment variables
 function getActiveCloudProvider(): { id: string; name: string } | null {
+  // 1. Google Gemini Flash (100% FREE at https://aistudio.google.com/app/apikey)
+  if (process.env.GEMINI_API_KEY) {
+    return { id: 'gemini_vision', name: 'Google Gemini Flash (Free Tier)' };
+  }
+  // 2. Groq Vision (100% FREE at https://console.groq.com/keys)
+  if (process.env.GROQ_API_KEY) {
+    return { id: 'groq_vision', name: 'Groq Llama 3.2 Vision (Free Tier)' };
+  }
+  // 3. Google Cloud Vision OCR
   if (process.env.GOOGLE_VISION_API_KEY) {
     return { id: 'google_vision', name: 'Google Cloud Vision OCR' };
   }
+  // 4. OpenAI Vision
   if (process.env.OPENAI_API_KEY) {
     return { id: 'openai_vision', name: 'OpenAI GPT-4o-mini Vision' };
   }
+  // 5. Azure Computer Vision
   if (process.env.AZURE_VISION_KEY && process.env.AZURE_VISION_ENDPOINT) {
     return { id: 'azure_vision', name: 'Azure Computer Vision Read API' };
   }
@@ -66,6 +77,90 @@ app.post('/api/ocr/recognize', async (req: Request, res: Response) => {
     // Strip data URI prefix if present
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
+    // 1. Google Gemini Flash (100% Free at https://aistudio.google.com/app/apikey)
+    if (provider.id === 'gemini_vision') {
+      const apiKey = process.env.GEMINI_API_KEY;
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: 'Extract all handwritten and printed bill text lines from this bill image. Focus especially on the rightmost amount column and monetary values. Return valid JSON only with a "lines" array where each object has: "text" (string of the recognized line or amount), "confidence" (number 0.8 to 1.0), and "bbox": { "x": number, "y": number, "width": number, "height": number } as normalized fractions from 0.0 to 1.0 indicating position on the page.',
+                  },
+                  {
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: base64Data,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
+          }),
+        }
+      );
+
+      if (!geminiRes.ok) {
+        const errText = await geminiRes.text();
+        return res.status(geminiRes.status).json({ error: 'Gemini Vision API error', details: errText });
+      }
+
+      const gData = await geminiRes.json();
+      const content = gData.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parsed = JSON.parse(content || '{}');
+      return res.json({ lines: parsed.lines || [], rawText: content || '' });
+    }
+
+    // 2. Groq Vision (100% Free at https://console.groq.com/keys)
+    if (provider.id === 'groq_vision') {
+      const apiKey = process.env.GROQ_API_KEY;
+      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.2-11b-vision-preview',
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Analyze this handwritten bill. Return a JSON object with a "lines" array. Each item must have: "text" (string containing the line text or number), "confidence" (number 0.0 to 1.0), and "bbox": { "x": number, "y": number, "width": number, "height": number } as normalized fractions from 0.0 to 1.0 representing position in the image. Focus especially on the rightmost amount column and bill amounts.',
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/jpeg;base64,${base64Data}` },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!groqRes.ok) {
+        const errText = await groqRes.text();
+        return res.status(groqRes.status).json({ error: 'Groq Vision API error', details: errText });
+      }
+
+      const groqData = await groqRes.json();
+      const content = groqData.choices?.[0]?.message?.content;
+      const parsed = JSON.parse(content || '{}');
+      return res.json({ lines: parsed.lines || [], rawText: '' });
+    }
+
+    // 3. Google Cloud Vision OCR
     if (provider.id === 'google_vision') {
       const apiKey = process.env.GOOGLE_VISION_API_KEY;
       const gRes = await fetch(
