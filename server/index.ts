@@ -16,19 +16,23 @@ function getActiveCloudProvider(): { id: string; name: string } | null {
   if (process.env.GEMINI_API_KEY) {
     return { id: 'gemini_vision', name: 'Google Gemini Flash (Free Tier)' };
   }
-  // 2. Groq Vision (100% FREE at https://console.groq.com/keys)
+  // 2. OpenRouter (Free tier at https://openrouter.ai/keys)
+  if (process.env.OPENROUTER_API_KEY) {
+    return { id: 'openrouter_vision', name: 'OpenRouter Free Vision' };
+  }
+  // 3. Groq Vision (100% FREE at https://console.groq.com/keys)
   if (process.env.GROQ_API_KEY) {
     return { id: 'groq_vision', name: 'Groq Llama 3.2 Vision (Free Tier)' };
   }
-  // 3. Google Cloud Vision OCR
+  // 4. Google Cloud Vision OCR (Free tier: 1000/mo)
   if (process.env.GOOGLE_VISION_API_KEY) {
     return { id: 'google_vision', name: 'Google Cloud Vision OCR' };
   }
-  // 4. OpenAI Vision
+  // 5. OpenAI Vision
   if (process.env.OPENAI_API_KEY) {
     return { id: 'openai_vision', name: 'OpenAI GPT-4o-mini Vision' };
   }
-  // 5. Azure Computer Vision
+  // 6. Azure Computer Vision
   if (process.env.AZURE_VISION_KEY && process.env.AZURE_VISION_ENDPOINT) {
     return { id: 'azure_vision', name: 'Azure Computer Vision Read API' };
   }
@@ -80,8 +84,9 @@ app.post('/api/ocr/recognize', async (req: Request, res: Response) => {
     // 1. Google Gemini Flash (100% Free at https://aistudio.google.com/app/apikey)
     if (provider.id === 'gemini_vision') {
       const apiKey = process.env.GEMINI_API_KEY;
+      const model = 'gemini-3.8-flash';
       const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -115,6 +120,47 @@ app.post('/api/ocr/recognize', async (req: Request, res: Response) => {
 
       const gData = await geminiRes.json();
       const content = gData.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parsed = JSON.parse(content || '{}');
+      return res.json({ lines: parsed.lines || [], rawText: content || '' });
+    }
+
+    // 2. OpenRouter Vision (Free tier at https://openrouter.ai/keys)
+    if (provider.id === 'openrouter_vision') {
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      const oRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-lite-001',
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Analyze this handwritten bill. Return a JSON object with a "lines" array. Each item must have: "text" (string containing the line text or number), "confidence" (number 0.0 to 1.0), and "bbox": { "x": number, "y": number, "width": number, "height": number } as normalized fractions from 0.0 to 1.0. Focus on the rightmost amount column.',
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:image/jpeg;base64,${base64Data}` },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!oRes.ok) {
+        const errText = await oRes.text();
+        return res.status(oRes.status).json({ error: 'OpenRouter Vision API error', details: errText });
+      }
+
+      const oData = await oRes.json();
+      const content = oData.choices?.[0]?.message?.content;
       const parsed = JSON.parse(content || '{}');
       return res.json({ lines: parsed.lines || [], rawText: content || '' });
     }
