@@ -1,6 +1,5 @@
 import { CameraService } from './cameraService';
 import { ImagePreprocessor } from './imagePreprocessor';
-import { DocumentDetector } from './documentDetector';
 import { AmountParser } from './amountParser';
 import { AmountColumnDetector } from './amountColumnDetector';
 import { LineItemTracker } from './lineItemTracker';
@@ -58,6 +57,13 @@ export class FrameProcessor {
     confidence: 0.5,
   };
 
+  private scanRoi: { x: number; y: number; width: number; height: number } = {
+    x: 0.05,
+    y: 0.08,
+    width: 0.90,
+    height: 0.70,
+  };
+
   private listeners: ((event: FrameProcessingEvent) => void)[] = [];
 
   constructor(
@@ -70,6 +76,10 @@ export class FrameProcessor {
     this.ocrManager = ocrManager;
     this.tracker = tracker;
     this.config = config;
+  }
+
+  public setScanRoi(roi: { x: number; y: number; width: number; height: number }): void {
+    this.scanRoi = roi;
   }
 
   public onFrameProcessed(listener: (event: FrameProcessingEvent) => void): () => void {
@@ -193,16 +203,42 @@ export class FrameProcessor {
 
       this.notify('processing', 'Reading handwritten amounts...', true);
 
-      // Step 3: Document Boundary Detection
+      // Step 3: Viewport Scanning Rectangle Crop (Fits mobile screen area)
       let croppedCanvas = sourceCanvas;
       let offsetBbox = { x: 0, y: 0, width: 1, height: 1 };
 
       if (!customCanvas) {
-        const docBounds = DocumentDetector.detectDocument(sourceCanvas);
-        this.currentDocBounds = docBounds;
-        const cropped = DocumentDetector.cropDocumentRegion(sourceCanvas, docBounds);
-        croppedCanvas = cropped.canvas;
-        offsetBbox = cropped.offsetBbox;
+        const roi = this.scanRoi;
+        const sx = Math.max(0, Math.floor(roi.x * sourceCanvas.width));
+        const sy = Math.max(0, Math.floor(roi.y * sourceCanvas.height));
+        const sw = Math.min(sourceCanvas.width - sx, Math.floor(roi.width * sourceCanvas.width));
+        const sh = Math.min(sourceCanvas.height - sy, Math.floor(roi.height * sourceCanvas.height));
+
+        if (sw > 40 && sh > 40) {
+          const roiCanvas = document.createElement('canvas');
+          roiCanvas.width = sw;
+          roiCanvas.height = sh;
+          const roiCtx = roiCanvas.getContext('2d');
+          if (roiCtx) {
+            roiCtx.drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+            croppedCanvas = roiCanvas;
+            offsetBbox = {
+              x: sx / sourceCanvas.width,
+              y: sy / sourceCanvas.height,
+              width: sw / sourceCanvas.width,
+              height: sh / sourceCanvas.height,
+            };
+          }
+        }
+
+        this.currentDocBounds = {
+          topLeft: { x: offsetBbox.x, y: offsetBbox.y },
+          topRight: { x: offsetBbox.x + offsetBbox.width, y: offsetBbox.y },
+          bottomRight: { x: offsetBbox.x + offsetBbox.width, y: offsetBbox.y + offsetBbox.height },
+          bottomLeft: { x: offsetBbox.x, y: offsetBbox.y + offsetBbox.height },
+          confidence: 1.0,
+          isConfident: true,
+        };
       } else {
         this.currentDocBounds = {
           topLeft: { x: 0, y: 0 },

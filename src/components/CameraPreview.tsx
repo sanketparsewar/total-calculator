@@ -15,6 +15,7 @@ interface CameraPreviewProps {
   cameraActive: boolean;
   onStartCamera: () => void;
   permissionError?: string;
+  onRoiChange?: (roi: { x: number; y: number; width: number; height: number }) => void;
 }
 
 export const CameraPreview: React.FC<CameraPreviewProps> = ({
@@ -26,8 +27,59 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   cameraActive,
   onStartCamera,
   permissionError,
+  onRoiChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // Compute normalized scanning ROI coordinates relative to the video feed
+  const computeRoi = () => {
+    if (!boxRef.current || !videoRef.current) return;
+    const box = boxRef.current.getBoundingClientRect();
+    const video = videoRef.current;
+    const vw = video.videoWidth || video.clientWidth;
+    const vh = video.videoHeight || video.clientHeight;
+    if (!vw || !vh) return;
+
+    const cw = video.clientWidth;
+    const ch = video.clientHeight;
+    if (!cw || !ch) return;
+
+    const vAspect = vw / vh;
+    const cAspect = cw / ch;
+
+    let scale = 1;
+    let ox = 0;
+    let oy = 0;
+
+    if (cAspect > vAspect) {
+      scale = cw / vw;
+      oy = (ch - vh * scale) / 2;
+    } else {
+      scale = ch / vh;
+      ox = (cw - vw * scale) / 2;
+    }
+
+    const rw = vw * scale;
+    const rh = vh * scale;
+
+    const normX = Math.max(0, Math.min(1, (box.left - ox) / rw));
+    const normY = Math.max(0, Math.min(1, (box.top - oy) / rh));
+    const normW = Math.max(0.1, Math.min(1 - normX, box.width / rw));
+    const normH = Math.max(0.1, Math.min(1 - normY, box.height / rh));
+
+    onRoiChange?.({ x: normX, y: normY, width: normW, height: normH });
+  };
+
+  useEffect(() => {
+    computeRoi();
+    window.addEventListener('resize', computeRoi);
+    const interval = setInterval(computeRoi, 1200);
+    return () => {
+      window.removeEventListener('resize', computeRoi);
+      clearInterval(interval);
+    };
+  }, [cameraActive]);
 
   // Render bounding boxes over live video feed
   useEffect(() => {
@@ -70,17 +122,32 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
       />
 
-      {/* Clean Subtle Reticle Guide (Corner brackets only) */}
+      {/* Mobile-Fit Scanning Rectangle (Viewfinder ROI) */}
       {cameraActive && (
-        <div className="absolute inset-6 sm:inset-10 top-8 bottom-28 pointer-events-none z-0 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <div className="w-8 h-8 border-t-2 border-l-2 border-emerald-400/60 rounded-tl-xl" />
-            <div className="w-8 h-8 border-t-2 border-r-2 border-emerald-400/60 rounded-tr-xl" />
-          </div>
+        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center pb-24 z-10">
+          <div
+            ref={boxRef}
+            className="relative w-[88vw] max-w-[420px] h-[65vh] max-h-[580px] min-h-[320px] rounded-3xl border-2 border-emerald-400/80 scanner-viewport-box overflow-hidden flex flex-col justify-between p-3.5"
+          >
+            {/* Glowing Corner Accents */}
+            <div className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-[3.5px] border-l-[3.5px] border-emerald-400 rounded-tl-2xl shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+            <div className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-[3.5px] border-r-[3.5px] border-emerald-400 rounded-tr-2xl shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+            <div className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-[3.5px] border-l-[3.5px] border-emerald-400 rounded-bl-2xl shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-[3.5px] border-r-[3.5px] border-emerald-400 rounded-br-2xl shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
 
-          <div className="flex justify-between items-end">
-            <div className="w-8 h-8 border-b-2 border-l-2 border-emerald-400/60 rounded-bl-xl" />
-            <div className="w-8 h-8 border-b-2 border-r-2 border-emerald-400/60 rounded-br-xl" />
+            {/* Top Scanning Helper Pill */}
+            <div className="self-center flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-950/85 backdrop-blur-md border border-emerald-500/30 text-[10px] font-semibold text-emerald-300 tracking-wider uppercase shadow-lg">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <span>Align numbers inside box</span>
+            </div>
+
+            {/* Animated Laser Scanning Beam */}
+            <div className="absolute left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399] animate-laser pointer-events-none" />
+
+            {/* Subtle bottom indicator */}
+            <div className="self-center text-[10px] text-slate-400/90 tracking-wide uppercase font-medium bg-slate-950/60 px-2.5 py-0.5 rounded-md backdrop-blur-sm">
+              Live Total Calculation
+            </div>
           </div>
         </div>
       )}
@@ -115,4 +182,3 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     </div>
   );
 };
-

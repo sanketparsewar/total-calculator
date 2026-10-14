@@ -442,3 +442,28 @@ input[type="range"] {
   .sm\:text-4xl { font-size: 2.25rem; line-height: 2.5rem; }
   .sm\:max-w-\[180px\] { max-width: 180px; }
 }
+
+/* Scanner Viewfinder Box & Laser Animation */
+.scanner-viewport-box {
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes scanLaser {
+  0% {
+    top: 4%;
+    opacity: 0.2;
+  }
+  50% {
+    top: 92%;
+    opacity: 0.85;
+  }
+  100% {
+    top: 4%;
+    opacity: 0.2;
+  }
+}
+
+.animate-laser {
+  animation: scanLaser 2.4s ease-in-out infinite;
+}
+

@@ -155,6 +155,7 @@ export const App: React.FC = () => {
         cameraActive={cameraActive}
         onStartCamera={handleStartCamera}
         permissionError={permissionError}
+        onRoiChange={(roi) => processorRef.current?.setScanRoi(roi)}
       />
 
       {/* At Bottom: JUST THE TOTAL */}

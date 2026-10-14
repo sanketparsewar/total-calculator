@@ -133,9 +133,13 @@ export class OverlayRenderer {
       const screenPos = toScreen(item.bbox.x, item.bbox.y);
       const screenDim = toScreenDim(item.bbox.width, item.bbox.height);
 
-      // Clamp minimum box dimensions so labels and boxes are readable
-      const boxW = Math.max(screenDim.width, 36);
-      const boxH = Math.max(screenDim.height, 20);
+      // Generous padding around detected numbers so boxes comfortably frame amounts
+      const padX = 6;
+      const padY = 4;
+      const drawX = Math.max(2, screenPos.x - padX);
+      const drawY = Math.max(2, screenPos.y - padY);
+      const boxW = Math.max(screenDim.width + padX * 2, 48);
+      const boxH = Math.max(screenDim.height + padY * 2, 26);
 
       // Stability filter: smooth fade-out if frame has no detections or camera shakes
       const ageMs = now - item.lastSeenTimestamp;
@@ -172,9 +176,13 @@ export class OverlayRenderer {
         textColor = '#F87171';
       }
 
-      // Draw bright green rectangle with 2px border
+      // Draw bright green rounded rectangle with 2px border
       ctx.beginPath();
-      ctx.rect(screenPos.x, screenPos.y, boxW, boxH);
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(drawX, drawY, boxW, boxH, 4);
+      } else {
+        ctx.rect(drawX, drawY, boxW, boxH);
+      }
       ctx.fillStyle = fillColor;
       ctx.fill();
       ctx.strokeStyle = strokeColor;
@@ -187,11 +195,15 @@ export class OverlayRenderer {
       const textMetrics = ctx.measureText(labelText);
       const badgeW = textMetrics.width + 10;
       const badgeH = 18;
-      const badgeX = Math.min(screenPos.x + boxW - badgeW, clientWidth - badgeW - 2);
-      const badgeY = Math.max(screenPos.y - badgeH - 2, 2);
+      const badgeX = Math.min(drawX + boxW - badgeW, clientWidth - badgeW - 2);
+      const badgeY = Math.max(drawY - badgeH - 2, 2);
 
       ctx.beginPath();
-      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
+      } else {
+        ctx.rect(badgeX, badgeY, badgeW, badgeH);
+      }
       ctx.fillStyle = badgeBg;
       ctx.fill();
       ctx.strokeStyle = strokeColor;
