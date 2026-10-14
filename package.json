@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "tsx server/index.ts",
-    "dev:all": "concurrently -n \"server,client\" -c \"blue,green\" \"tsx server/index.ts\" \"vite\"",
+    "server": "tsx watch server/index.ts",
+    "dev:all": "concurrently -n \"server,client\" -c \"blue,green\" \"tsx watch server/index.ts\" \"vite\"",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "lint": "eslint .",

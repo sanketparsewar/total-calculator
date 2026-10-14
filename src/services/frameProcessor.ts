@@ -159,14 +159,17 @@ export class FrameProcessor {
 
     try {
       // Step 1: Image Quality Assessment (Motion Blur & Lighting)
-      const quality = ImagePreprocessor.assessQuality(sourceCanvas);
-      if (quality.isBlurry) {
-        this.notify('low_quality', 'Low image quality — hold the camera steady', false);
-        return;
-      }
-      if (quality.isTooDark) {
-        this.notify('low_quality', 'Lighting too dark — point towards light', false);
-        return;
+      // Only enforce strict motion blur on live camera stream; uploaded files are static
+      if (!customCanvas) {
+        const quality = ImagePreprocessor.assessQuality(sourceCanvas);
+        if (quality.isBlurry) {
+          this.notify('low_quality', 'Low image quality — hold the camera steady', false);
+          return;
+        }
+        if (quality.isTooDark) {
+          this.notify('low_quality', 'Lighting too dark — point towards light', false);
+          return;
+        }
       }
 
       // Step 2: Temporal Change Detection
@@ -181,20 +184,36 @@ export class FrameProcessor {
       this.notify('processing', 'Reading handwritten amounts...', true);
 
       // Step 3: Document Boundary Detection
-      const docBounds = DocumentDetector.detectDocument(sourceCanvas);
-      this.currentDocBounds = docBounds;
+      let croppedCanvas = sourceCanvas;
+      let offsetBbox = { x: 0, y: 0, width: 1, height: 1 };
 
-      // Crop to document region if confidently detected
-      const { canvas: croppedCanvas, offsetBbox } = DocumentDetector.cropDocumentRegion(
-        sourceCanvas,
-        docBounds
-      );
+      if (!customCanvas) {
+        const docBounds = DocumentDetector.detectDocument(sourceCanvas);
+        this.currentDocBounds = docBounds;
+        const cropped = DocumentDetector.cropDocumentRegion(sourceCanvas, docBounds);
+        croppedCanvas = cropped.canvas;
+        offsetBbox = cropped.offsetBbox;
+      } else {
+        this.currentDocBounds = {
+          topLeft: { x: 0, y: 0 },
+          topRight: { x: 1, y: 0 },
+          bottomRight: { x: 1, y: 1 },
+          bottomLeft: { x: 0, y: 1 },
+          confidence: 1.0,
+          isConfident: true,
+        };
+      }
 
-      // Step 4: Image Preprocessing (grayscale, contrast stretching, ink sharpening)
-      const enhancedCanvas = ImagePreprocessor.enhanceForOcr(croppedCanvas);
+      // Step 4: Image Preparation
+      // For local Tesseract OCR, grayscale & contrast boost helps.
+      // For Cloud Neural Vision (Gemini), send original high-fidelity canvas directly!
+      const isCloudProvider = this.ocrManager.isCloudReady() && this.ocrManager.getActiveProviderId() === 'cloud-ocr';
+      const canvasForOcr = isCloudProvider
+        ? croppedCanvas
+        : ImagePreprocessor.enhanceForOcr(croppedCanvas);
 
       // Step 5: OCR Execution
-      const ocrResult = await this.ocrManager.recognize(enhancedCanvas);
+      const ocrResult = await this.ocrManager.recognize(canvasForOcr);
 
       // Map OCR line bounding boxes back to full frame normalized coordinates
       const mappedLines = ocrResult.lines.map((l) => ({
@@ -216,23 +235,42 @@ export class FrameProcessor {
         }
       }
 
-      // Step 7: Amount Column Detection & Filtering (rightmost amount column)
-      const { boundary, candidates: columnClassifiedCandidates } = AmountColumnDetector.detectAmountColumn(
-        mappedLines,
-        candidates,
-        this.config
-      );
-      this.currentColumnBoundary = boundary;
+      // Step 7: Amount Column Detection & Filtering
+      let columnClassifiedCandidates: CandidateAmount[];
+      if (isCloudProvider && candidates.length > 0) {
+        // Gemini Vision already targeted and extracted the rightmost column
+        this.currentColumnBoundary = {
+          minX: Math.min(...candidates.map((c) => c.bbox.x)),
+          maxX: 1.0,
+          confidence: 0.95,
+        };
+        columnClassifiedCandidates = candidates.map((c) => ({
+          ...c,
+          isRightmostColumn: true,
+        }));
+      } else {
+        const { boundary, candidates: detectedCandidates } = AmountColumnDetector.detectAmountColumn(
+          mappedLines,
+          candidates,
+          this.config
+        );
+        this.currentColumnBoundary = boundary;
+        columnClassifiedCandidates = detectedCandidates;
+      }
 
       // Step 8: Spatial and Temporal Tracking / Deduplication / Registry Update
       this.tracker.processFrame(columnClassifiedCandidates, this.config);
 
       const acceptedCount = this.tracker.getAcceptedItems().length;
-      const statusMsg = acceptedCount > 0
+      const statusMsg = customCanvas
+        ? acceptedCount > 0
+          ? `Total calculated: ${acceptedCount} item${acceptedCount > 1 ? 's' : ''} detected`
+          : 'No amounts detected on uploaded bill'
+        : acceptedCount > 0
         ? `${acceptedCount} amount${acceptedCount > 1 ? 's' : ''} detected`
         : 'Scanning bill for amounts...';
 
-      this.notify('scanning', statusMsg, false);
+      this.notify(customCanvas ? 'paused' : 'scanning', statusMsg, false);
     } catch (err: any) {
       console.error('Frame processing error:', err);
       this.notify('error', `OCR Error: ${err.message || 'Processing failed'}`, false);

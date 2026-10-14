@@ -102,9 +102,47 @@ Return a strict JSON object with an "items" array in the following format:
 }
 Where coordinates in box_2d are integers normalized from 0 to 1000 (ymin, xmin, ymax, xmax).`;
 
-      const candidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+      const candidateModels = [
+        'gemini-flash-lite-latest',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite',
+        'gemini-3.8-flash',
+        'gemini-3.5-flash',
+        'gemini-flash-latest',
+      ];
       let lastErrText = '';
       let parsedResponse: any = null;
+
+      const parseGeminiJson = (rawText: string): any => {
+        if (!rawText) return null;
+        try {
+          return JSON.parse(rawText);
+        } catch {}
+
+        const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (fenceMatch) {
+          try {
+            return JSON.parse(fenceMatch[1]);
+          } catch {}
+        }
+
+        const firstBrace = rawText.indexOf('{');
+        const lastBrace = rawText.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          try {
+            return JSON.parse(rawText.slice(firstBrace, lastBrace + 1));
+          } catch {}
+        }
+
+        const firstBracket = rawText.indexOf('[');
+        const lastBracket = rawText.lastIndexOf(']');
+        if (firstBracket !== -1 && lastBracket > firstBracket) {
+          try {
+            return JSON.parse(rawText.slice(firstBracket, lastBracket + 1));
+          } catch {}
+        }
+        return null;
+      };
 
       for (const model of candidateModels) {
         try {
@@ -141,8 +179,11 @@ Where coordinates in box_2d are integers normalized from 0 to 1000 (ymin, xmin, 
 
           const gData = await geminiRes.json();
           const content = gData.candidates?.[0]?.content?.parts?.[0]?.text;
-          parsedResponse = JSON.parse(content || '{}');
-          break; // Succeeded!
+          const parsed = parseGeminiJson(content);
+          if (parsed) {
+            parsedResponse = parsed;
+            break; // Succeeded!
+          }
         } catch (err: any) {
           lastErrText = err.message;
         }
@@ -152,10 +193,32 @@ Where coordinates in box_2d are integers normalized from 0 to 1000 (ymin, xmin, 
         return res.status(502).json({ error: 'Gemini Vision API error', details: lastErrText });
       }
 
-      const rawItems = parsedResponse.items || [];
+      let rawItems: any[] = [];
+      if (Array.isArray(parsedResponse)) {
+        rawItems = parsedResponse;
+      } else if (Array.isArray(parsedResponse?.items)) {
+        rawItems = parsedResponse.items;
+      } else if (Array.isArray(parsedResponse?.amounts)) {
+        rawItems = parsedResponse.amounts;
+      } else if (Array.isArray(parsedResponse?.line_items)) {
+        rawItems = parsedResponse.line_items;
+      } else if (Array.isArray(parsedResponse?.prices)) {
+        rawItems = parsedResponse.prices;
+      }
+
       const lines = rawItems.map((item: any) => {
-        const val = typeof item.value === 'number' ? item.value : parseFloat(item.value) || 0;
-        const box = Array.isArray(item.box_2d) && item.box_2d.length === 4
+        const val =
+          typeof item === 'number'
+            ? item
+            : typeof item?.value === 'number'
+            ? item.value
+            : typeof item?.amount === 'number'
+            ? item.amount
+            : typeof item?.price === 'number'
+            ? item.price
+            : parseFloat(String(item?.value || item?.amount || item?.price || item || '0').replace(/[^0-9.]/g, '')) || 0;
+
+        const box = Array.isArray(item?.box_2d) && item.box_2d.length === 4
           ? item.box_2d
           : [0, 600, 50, 950];
 
