@@ -17,7 +17,6 @@ import { ItemsDrawer } from './components/ItemsDrawer';
 import { ManualEditModal } from './components/ManualEditModal';
 import { SettingsDrawer } from './components/SettingsDrawer';
 import { TopBar } from './components/TopBar';
-import { SampleBillModal } from './components/SampleBillModal';
 
 export const App: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -49,6 +48,7 @@ export const App: React.FC = () => {
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [permissionError, setPermissionError] = useState<string | undefined>();
   const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [uploadedImageSrc, setUploadedImageSrc] = useState<string | null>(null);
 
   // Scanner Results State
   const [items, setItems] = useState<LineItem[]>([]);
@@ -67,7 +67,6 @@ export const App: React.FC = () => {
   // Modal / Drawer States
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [isSampleBillsOpen, setIsSampleBillsOpen] = useState<boolean>(false);
   const [editingItem, setEditingItem] = useState<LineItem | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
 
@@ -133,6 +132,7 @@ export const App: React.FC = () => {
   // Start Camera Automatically on Startup
   const handleStartCamera = useCallback(async () => {
     if (!videoRef.current) return;
+    setUploadedImageSrc(null);
     setPermissionError(undefined);
     setStatusMessage('Requesting camera permission...');
     setScannerStatus('requesting_permission');
@@ -153,28 +153,32 @@ export const App: React.FC = () => {
 
   // Auto-launch camera when component mounts and video element is ready
   useEffect(() => {
-    if (videoRef.current && !cameraActive) {
+    if (videoRef.current && !cameraActive && !uploadedImageSrc) {
       handleStartCamera();
     }
-  }, [handleStartCamera, cameraActive]);
+  }, [handleStartCamera, cameraActive, uploadedImageSrc]);
 
   const handleTogglePause = () => {
     const cam = cameraRef.current;
-    if (cam.getIsPaused()) {
+    if (cam.getIsPaused() || isPaused) {
       cam.resume();
+      setIsPaused(false);
       setStatusMessage('Scanning resumed');
     } else {
       cam.pause();
-      setStatusMessage('Scanner paused');
+      setIsPaused(true);
+      setStatusMessage('Scanner locked');
     }
   };
 
   const handleFlipCamera = async () => {
+    setUploadedImageSrc(null);
     await cameraRef.current.toggleCamera();
   };
 
   const handleResetBill = () => {
     trackerRef.current.reset();
+    setUploadedImageSrc(null);
     setItems([]);
     setTotalSummary({
       totalPaise: 0,
@@ -184,6 +188,40 @@ export const App: React.FC = () => {
       excludedCount: 0,
     });
     setStatusMessage('Bill cleared. Ready for next document.');
+    if (cameraActive) {
+      cameraRef.current.resume();
+      setIsPaused(false);
+    }
+  };
+
+  const handleUploadImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setUploadedImageSrc(dataUrl);
+
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          // Pause camera so it doesn't overwrite uploaded image
+          cameraRef.current.pause();
+          setIsPaused(true);
+          trackerRef.current.reset();
+          setScannerStatus('processing');
+          setStatusMessage('Processing uploaded bill image...');
+          if (processorRef.current) {
+            await processorRef.current.processCurrentFrame(canvas);
+          }
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleOpenEdit = (item: LineItem) => {
@@ -202,20 +240,16 @@ export const App: React.FC = () => {
     } else {
       trackerRef.current.addManualItem(amountPaise);
     }
-    // Refresh items and totals
     const currentItems = trackerRef.current.getItems();
     setItems(currentItems);
-    if (processorRef.current) {
-      // Force refresh summary
-      const accepted = trackerRef.current.getAcceptedItems();
-      const sumPaise = accepted.reduce((acc, i) => acc + i.normalizedAmountPaise, 0);
-      setTotalSummary((prev) => ({
-        ...prev,
-        totalPaise: sumPaise,
-        formattedTotal: `${config.currencySymbol}${(sumPaise / 100).toFixed(2)}`,
-        itemCount: accepted.length,
-      }));
-    }
+    const accepted = trackerRef.current.getAcceptedItems();
+    const sumPaise = accepted.reduce((acc, i) => acc + i.normalizedAmountPaise, 0);
+    setTotalSummary((prev) => ({
+      ...prev,
+      totalPaise: sumPaise,
+      formattedTotal: `${config.currencySymbol}${(sumPaise / 100).toFixed(2)}`,
+      itemCount: accepted.length,
+    }));
   };
 
   const handleToggleInclusion = (id: string) => {
@@ -238,28 +272,21 @@ export const App: React.FC = () => {
     setItems(updated);
   };
 
-  const handleTestSampleBill = async (canvas: HTMLCanvasElement) => {
-    if (processorRef.current) {
-      // Clear current bill first for clean benchmark
-      trackerRef.current.reset();
-      await processorRef.current.processCurrentFrame(canvas);
-    }
-  };
-
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans flex flex-col">
-      {/* Top Navigation & Status Bar */}
+      {/* Top Bar with Title, Upload Bill, Flip Camera, Settings */}
       <TopBar
         activeProvider={activeProviderName}
         isCloudReady={isCloudReady}
         onFlipCamera={handleFlipCamera}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenSampleBills={() => setIsSampleBillsOpen(true)}
+        onUploadImage={handleUploadImage}
       />
 
-      {/* Live Camera Viewfinder with Green Bounding Boxes */}
+      {/* Live Camera Viewfinder or Uploaded Bill with Green Bounding Boxes */}
       <CameraPreview
         videoRef={videoRef}
+        uploadedImageSrc={uploadedImageSrc}
         items={items}
         documentBounds={documentBounds}
         columnBoundary={columnBoundary}
@@ -271,6 +298,7 @@ export const App: React.FC = () => {
         fps={fps}
         cameraActive={cameraActive}
         onStartCamera={handleStartCamera}
+        onUploadImage={handleUploadImage}
         permissionError={permissionError}
       />
 
@@ -281,10 +309,10 @@ export const App: React.FC = () => {
         onReset={handleResetBill}
         isPaused={isPaused}
         onTogglePause={handleTogglePause}
-        statusText={isProcessing ? 'Analyzing...' : 'Scanning...'}
+        statusText={isProcessing ? 'Analyzing...' : isPaused ? 'Locked' : 'Scanning...'}
       />
 
-      {/* Expandable Line Items Drawer */}
+      {/* Line Items Drawer */}
       <ItemsDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
@@ -319,14 +347,6 @@ export const App: React.FC = () => {
           setIsCloudReady(true);
           setActiveProviderName(ocrManagerRef.current.getActiveProviderName());
         }}
-      />
-
-      {/* Benchmark Sample Bills Modal */}
-      <SampleBillModal
-        isOpen={isSampleBillsOpen}
-        onClose={() => setIsSampleBillsOpen(false)}
-        onTestSample={handleTestSampleBill}
-        currentTotalFormatted={totalSummary.formattedTotal}
       />
     </div>
   );

@@ -1,9 +1,48 @@
 import { describe, it, expect } from 'vitest';
-import { SAMPLE_BILLS } from '../src/data/sampleBills';
 import { AmountParser } from '../src/services/amountParser';
 import { LineItemTracker } from '../src/services/lineItemTracker';
 import { TotalCalculator } from '../src/services/totalCalculator';
 import { CandidateAmount, ScannerConfig } from '../src/types/scanner';
+
+const BENCHMARK_BILLS = [
+  {
+    id: 'grocery-notebook',
+    groundTruthTotalPaise: 39750,
+    groundTruthFormatted: '₹397.50',
+    items: [
+      { name: 'Atta 5kg', amount: '125.00' },
+      { name: 'Sugar 1kg', amount: '46.00' },
+      { name: 'Toor Dal', amount: '35.00' },
+      { name: 'Mustard Oil', amount: '20.00' },
+      { name: 'Lifebuoy Soap', amount: '17.00' },
+      { name: 'Red Label Tea', amount: '10.50' },
+      { name: 'Parle-G Biscuit', amount: '9.50' },
+      { name: 'Cow Ghee 50g', amount: '12.00' },
+      { name: 'Basmati Rice', amount: '31.00' },
+      { name: 'Tata Salt', amount: '23.00' },
+      { name: 'Garam Masala', amount: '7.50' },
+      { name: 'Matchbox pkt', amount: '2.50' },
+      { name: 'Colgate Paste', amount: '32.00' },
+      { name: 'Rin Detergent', amount: '6.00' },
+      { name: 'Lays Chips', amount: '8.50' },
+      { name: 'Dairy Milk', amount: '8.00' },
+      { name: 'Maggi 2-min', amount: '4.00' },
+    ],
+  },
+  {
+    id: 'restaurant-receipt',
+    groundTruthTotalPaise: 59000,
+    groundTruthFormatted: '₹590.00',
+    items: [
+      { name: 'Paneer Tikka', amount: '180.00' },
+      { name: 'Butter Naan', amount: '45.00' },
+      { name: 'Butter Naan', amount: '45.00' },
+      { name: 'Dal Makhani', amount: '160.00' },
+      { name: 'Jeera Rice', amount: '110.00' },
+      { name: 'Gulab Jamun', amount: '50.00' },
+    ],
+  },
+];
 
 describe('Benchmark Sample Bills & Ground Truth Accuracy', () => {
   const config: ScannerConfig = {
@@ -19,7 +58,7 @@ describe('Benchmark Sample Bills & Ground Truth Accuracy', () => {
   };
 
   it('correctly benchmarks Sample Bill 1: Grocery Notebook (17 items, sum ₹397.50)', () => {
-    const bill = SAMPLE_BILLS[0];
+    const bill = BENCHMARK_BILLS[0];
     const tracker = new LineItemTracker();
 
     // Convert items into candidates
@@ -51,7 +90,7 @@ describe('Benchmark Sample Bills & Ground Truth Accuracy', () => {
   });
 
   it('correctly benchmarks Sample Bill 2: Restaurant Bill (Duplicate ₹45 + Grand Total Exclusion)', () => {
-    const bill = SAMPLE_BILLS[1];
+    const bill = BENCHMARK_BILLS[1];
     const tracker = new LineItemTracker();
 
     const candidates: CandidateAmount[] = bill.items.map((item, idx) => {

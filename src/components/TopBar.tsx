@@ -1,12 +1,12 @@
-import React from 'react';
-import { Settings, RefreshCw, Sparkles, ReceiptText } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Settings, RefreshCw, Upload, ReceiptText } from 'lucide-react';
 
 interface TopBarProps {
   activeProvider: string;
   isCloudReady: boolean;
   onFlipCamera: () => void;
   onOpenSettings: () => void;
-  onOpenSampleBills: () => void;
+  onUploadImage: (file: File) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -14,11 +14,30 @@ export const TopBar: React.FC<TopBarProps> = ({
   isCloudReady,
   onFlipCamera,
   onOpenSettings,
-  onOpenSampleBills,
+  onUploadImage,
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onUploadImage(file);
+      e.target.value = '';
+    }
+  };
+
   return (
     <header className="fixed top-0 inset-x-0 z-30 pointer-events-auto pt-safe">
       <div className="mx-3 mt-3 px-3.5 py-2.5 rounded-2xl bg-slate-900/80 backdrop-blur-xl border border-slate-700/60 shadow-lg flex items-center justify-between">
+        {/* Hidden File Input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+
         {/* App Title & Provider Tag */}
         <div className="flex items-center space-x-2.5">
           <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
@@ -43,14 +62,14 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-1.5">
-          {/* Sample Bills Demo Picker */}
+          {/* Upload Bill Button */}
           <button
-            onClick={onOpenSampleBills}
-            title="Test Sample Bills"
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-semibold hover:bg-indigo-500/25 active:scale-95 transition-all"
+            onClick={() => fileInputRef.current?.click()}
+            title="Upload Bill Photo / Image"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/30 active:scale-95 transition-all"
           >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden sm:inline">Sample Bills</span>
+            <Upload className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Upload Bill</span>
           </button>
 
           {/* Flip Camera */}

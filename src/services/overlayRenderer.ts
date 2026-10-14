@@ -6,6 +6,7 @@ export interface OverlayRenderOptions {
   columnBoundary?: ColumnBoundary;
   showDiagnostics?: boolean;
   currencySymbol?: string;
+  fit?: 'cover' | 'contain';
 }
 
 export class OverlayRenderer {
@@ -15,7 +16,7 @@ export class OverlayRenderer {
    */
   public static render(
     canvas: HTMLCanvasElement,
-    video: HTMLVideoElement,
+    video: HTMLVideoElement | { videoWidth: number; videoHeight: number },
     options: OverlayRenderOptions
   ): void {
     const ctx = canvas.getContext('2d');
@@ -43,7 +44,6 @@ export class OverlayRenderer {
       return;
     }
 
-    // Calculate object-fit: cover transformation
     const videoAspect = videoWidth / videoHeight;
     const containerAspect = clientWidth / clientHeight;
 
@@ -51,14 +51,26 @@ export class OverlayRenderer {
     let offsetX = 0;
     let offsetY = 0;
 
-    if (containerAspect > videoAspect) {
-      // Container is wider than video: cropped top and bottom
-      scale = clientWidth / videoWidth;
-      offsetY = (clientHeight - videoHeight * scale) / 2;
+    if (options.fit === 'contain') {
+      if (containerAspect > videoAspect) {
+        // Container is wider: letterbox left and right
+        scale = clientHeight / videoHeight;
+        offsetX = (clientWidth - videoWidth * scale) / 2;
+      } else {
+        // Container is taller: letterbox top and bottom
+        scale = clientWidth / videoWidth;
+        offsetY = (clientHeight - videoHeight * scale) / 2;
+      }
     } else {
-      // Container is taller than video: cropped left and right
-      scale = clientHeight / videoHeight;
-      offsetX = (clientWidth - videoWidth * scale) / 2;
+      if (containerAspect > videoAspect) {
+        // Container is wider than video: cropped top and bottom
+        scale = clientWidth / videoWidth;
+        offsetY = (clientHeight - videoHeight * scale) / 2;
+      } else {
+        // Container is taller than video: cropped left and right
+        scale = clientHeight / videoHeight;
+        offsetX = (clientWidth - videoWidth * scale) / 2;
+      }
     }
 
     const renderWidth = videoWidth * scale;

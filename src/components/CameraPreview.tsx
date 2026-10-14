@@ -1,10 +1,11 @@
 import React, { useRef, useEffect } from 'react';
 import { LineItem, DocumentBounds, ColumnBoundary, ScannerStatus } from '../types/scanner';
 import { OverlayRenderer } from '../services/overlayRenderer';
-import { AlertCircle, Eye, ScanLine } from 'lucide-react';
+import { AlertCircle, Eye, Upload, Camera } from 'lucide-react';
 
 interface CameraPreviewProps {
   videoRef: React.RefObject<HTMLVideoElement>;
+  uploadedImageSrc: string | null;
   items: LineItem[];
   documentBounds?: DocumentBounds;
   columnBoundary?: ColumnBoundary;
@@ -16,11 +17,13 @@ interface CameraPreviewProps {
   fps: number;
   cameraActive: boolean;
   onStartCamera: () => void;
+  onUploadImage: (file: File) => void;
   permissionError?: string;
 }
 
 export const CameraPreview: React.FC<CameraPreviewProps> = ({
   videoRef,
+  uploadedImageSrc,
   items,
   documentBounds,
   columnBoundary,
@@ -32,43 +35,91 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   fps,
   cameraActive,
   onStartCamera,
+  onUploadImage,
   permissionError,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Render bounding boxes over live preview
+  // Render bounding boxes over live preview or uploaded image
   useEffect(() => {
     let animId: number;
 
     const renderLoop = () => {
-      if (canvasRef.current && videoRef.current) {
-        OverlayRenderer.render(canvasRef.current, videoRef.current, {
-          items,
-          documentBounds,
-          columnBoundary,
-          showDiagnostics,
-          currencySymbol,
-        });
+      if (canvasRef.current) {
+        if (uploadedImageSrc && imageRef.current) {
+          const img = imageRef.current;
+          OverlayRenderer.render(canvasRef.current, {
+            videoWidth: img.naturalWidth || img.width,
+            videoHeight: img.naturalHeight || img.height,
+          }, {
+            items,
+            documentBounds,
+            columnBoundary,
+            showDiagnostics,
+            currencySymbol,
+            fit: 'contain',
+          });
+        } else if (videoRef.current) {
+          OverlayRenderer.render(canvasRef.current, videoRef.current, {
+            items,
+            documentBounds,
+            columnBoundary,
+            showDiagnostics,
+            currencySymbol,
+            fit: 'cover',
+          });
+        }
       }
       animId = requestAnimationFrame(renderLoop);
     };
 
     animId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animId);
-  }, [items, documentBounds, columnBoundary, showDiagnostics, currencySymbol]);
+  }, [items, documentBounds, columnBoundary, showDiagnostics, currencySymbol, uploadedImageSrc, videoRef]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onUploadImage(file);
+      e.target.value = ''; // Reset input
+    }
+  };
+
+  const isShowingContent = cameraActive || !!uploadedImageSrc;
 
   return (
-    <div className="relative w-full h-full flex-1 overflow-hidden bg-black select-none flex items-center justify-center">
-      {/* Live Video Preview */}
-      <video
-        ref={videoRef}
-        playsInline
-        muted
-        autoPlay
-        className={`w-full h-full object-cover transition-opacity duration-300 ${
-          cameraActive ? 'opacity-100' : 'opacity-0'
-        }`}
+    <div className="relative w-full h-full flex-1 overflow-hidden bg-slate-950 select-none flex items-center justify-center">
+      {/* Hidden File Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
       />
+
+      {/* Uploaded Image Mode */}
+      {uploadedImageSrc ? (
+        <img
+          ref={imageRef}
+          src={uploadedImageSrc}
+          alt="Uploaded Bill"
+          className="w-full h-full object-contain transition-opacity duration-300"
+        />
+      ) : (
+        /* Live Video Preview */
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            cameraActive ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
 
       {/* Overlay Canvas for Green Bounding Boxes */}
       <canvas
@@ -76,15 +127,11 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
       />
 
-      {/* Viewfinder Target Reticle / Guide Overlay */}
-      {cameraActive && (
+      {/* Viewfinder Target Reticle / Guide Overlay for Live Camera */}
+      {cameraActive && !uploadedImageSrc && (
         <div className="absolute inset-x-6 inset-y-16 pointer-events-none border border-emerald-500/20 rounded-2xl z-0 flex flex-col justify-between p-4">
           <div className="flex justify-between items-start">
             <div className="w-6 h-6 border-t-2 border-l-2 border-emerald-400 rounded-tl-lg" />
-            <div className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-md text-[11px] font-medium text-emerald-300 border border-emerald-500/30">
-              <ScanLine className="w-3.5 h-3.5 animate-pulse text-emerald-400" />
-              <span>Right column scanner</span>
-            </div>
             <div className="w-6 h-6 border-t-2 border-r-2 border-emerald-400 rounded-tr-lg" />
           </div>
 
@@ -102,15 +149,15 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         </div>
       )}
 
-      {/* Non-active / Permission Screen */}
-      {!cameraActive && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-20 bg-slate-950/90 backdrop-blur-md">
+      {/* Non-active / Welcome Screen */}
+      {!isShowingContent && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-20 bg-slate-950/95 backdrop-blur-md">
           <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/30">
             <Eye className="w-8 h-8 animate-pulse" />
           </div>
           <h2 className="text-xl font-bold text-white mb-2">Live Bill Scanner</h2>
           <p className="text-slate-400 text-sm max-w-xs mb-6">
-            Point your camera at handwritten bills, grocery receipts, or expense sheets to sum the rightmost amount column in real time.
+            Automatically detect, highlight, and sum handwritten or printed product amounts located in the rightmost column.
           </p>
 
           {permissionError && (
@@ -120,17 +167,28 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             </div>
           )}
 
-          <button
-            onClick={onStartCamera}
-            className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold text-sm shadow-lg shadow-emerald-500/25 active:scale-95 transition-all flex items-center space-x-2"
-          >
-            <span>Start Live Camera</span>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+            <button
+              onClick={onStartCamera}
+              className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold text-sm shadow-lg shadow-emerald-500/25 active:scale-95 transition-all flex items-center justify-center space-x-2"
+            >
+              <Camera className="w-4 h-4" />
+              <span>Start Camera</span>
+            </button>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex-1 px-5 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 hover:text-white font-semibold text-sm active:scale-95 transition-all flex items-center justify-center space-x-2"
+            >
+              <Upload className="w-4 h-4 text-emerald-400" />
+              <span>Upload Bill</span>
+            </button>
+          </div>
         </div>
       )}
 
       {/* Top Floating Status Pill */}
-      {cameraActive && (
+      {isShowingContent && (
         <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none z-20">
           <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-900/80 backdrop-blur-md border border-slate-700/60 shadow-lg">
             <span
@@ -147,7 +205,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             </span>
           </div>
 
-          {fps > 0 && (
+          {fps > 0 && !uploadedImageSrc && (
             <div className="px-2.5 py-1 rounded-md bg-slate-900/70 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-slate-400">
               {fps} FPS
             </div>
