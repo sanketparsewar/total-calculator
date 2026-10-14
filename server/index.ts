@@ -84,23 +84,26 @@ app.post('/api/ocr/recognize', async (req: Request, res: Response) => {
     // 1. Google Gemini Flash (100% Free at https://aistudio.google.com/app/apikey)
     if (provider.id === 'gemini_vision' || req.body.apiKey) {
       const apiKey = req.body.apiKey || process.env.GEMINI_API_KEY;
-      const visionPrompt = `Analyze this receipt or bill image.
-Identify ONLY the individual line-item prices located in the rightmost column, stacked vertically one below another.
-Strict Exclusions:
-- Ignore dates, bill/serial numbers, invoice IDs at the top.
-- Ignore quantities (e.g. 1k, 2kg, 2NO, 50G, 500gm).
-- Ignore unit rates (if a separate "Rate" or "Price/Unit" column exists to the left of the final "Amount" column).
-- Ignore existing handwritten or printed subtotals, grand totals, advances, or deposits at the very bottom of the document.
-Return a strict JSON object with an "items" array in the following format:
+      const visionPrompt = `You are a real-time live bill scanner and document numerical calculator AI.
+Analyze this camera image of a bill, receipt, or handwritten notepad.
+Detect all numerical monetary amounts arranged in a vertical list or column (stacked one below another).
+
+Rules:
+1. Extract every individual price or amount written or printed one below another down the list or column (e.g. 150, 45.50, 20, 340, 80).
+2. Look for the vertical column or sequence of numbers written one below another.
+3. Exclude serial numbers or row indices on the far left (e.g. 1., 2., 3.), phone numbers, dates, or unit quantities (e.g. 2kg, 5pcs).
+4. Exclude pre-calculated grand totals or "Total" rows at the bottom so we compute the true live sum.
+5. Return tight normalized 2D bounding boxes [ymin, xmin, ymax, xmax] (integers 0 to 1000) for each number.
+
+Return strict JSON:
 {
   "items": [
     {
-      "value": 125.00,
+      "value": 150.0,
       "box_2d": [ymin, xmin, ymax, xmax]
     }
   ]
-}
-Where coordinates in box_2d are integers normalized from 0 to 1000 (ymin, xmin, ymax, xmax).`;
+}`;
 
       const candidateModels = [
         'gemini-flash-lite-latest',
@@ -206,40 +209,43 @@ Where coordinates in box_2d are integers normalized from 0 to 1000 (ymin, xmin, 
         rawItems = parsedResponse.prices;
       }
 
-      const lines = rawItems.map((item: any) => {
-        const val =
-          typeof item === 'number'
-            ? item
-            : typeof item?.value === 'number'
-            ? item.value
-            : typeof item?.amount === 'number'
-            ? item.amount
-            : typeof item?.price === 'number'
-            ? item.price
-            : parseFloat(String(item?.value || item?.amount || item?.price || item || '0').replace(/[^0-9.]/g, '')) || 0;
+      const lines = rawItems
+        .map((item: any) => {
+          const val =
+            typeof item === 'number'
+              ? item
+              : typeof item?.value === 'number'
+              ? item.value
+              : typeof item?.amount === 'number'
+              ? item.amount
+              : typeof item?.price === 'number'
+              ? item.price
+              : parseFloat(String(item?.value || item?.amount || item?.price || item || '0').replace(/[^0-9.]/g, '')) || 0;
 
-        const box = Array.isArray(item?.box_2d) && item.box_2d.length === 4
-          ? item.box_2d
-          : [0, 600, 50, 950];
+          const box = Array.isArray(item?.box_2d) && item.box_2d.length === 4
+            ? item.box_2d
+            : [0, 600, 50, 950];
 
-        const ymin = Math.max(0, Math.min(1, box[0] / 1000));
-        const xmin = Math.max(0, Math.min(1, box[1] / 1000));
-        const ymax = Math.max(0, Math.min(1, box[2] / 1000));
-        const xmax = Math.max(0, Math.min(1, box[3] / 1000));
+          const ymin = Math.max(0, Math.min(1, box[0] / 1000));
+          const xmin = Math.max(0, Math.min(1, box[1] / 1000));
+          const ymax = Math.max(0, Math.min(1, box[2] / 1000));
+          const xmax = Math.max(0, Math.min(1, box[3] / 1000));
 
-        return {
-          text: val.toFixed(2),
-          value: val,
-          confidence: 0.96,
-          box_2d: box,
-          bbox: {
-            x: xmin,
-            y: ymin,
-            width: Math.max(0.02, xmax - xmin),
-            height: Math.max(0.015, ymax - ymin),
-          },
-        };
-      });
+          return {
+            text: val.toFixed(2),
+            value: val,
+            confidence: 0.98,
+            box_2d: box,
+            bbox: {
+              x: xmin,
+              y: ymin,
+              width: Math.max(0.02, xmax - xmin),
+              height: Math.max(0.015, ymax - ymin),
+            },
+          };
+        })
+        .filter((l) => l.value > 0)
+        .sort((a, b) => a.bbox.y - b.bbox.y);
 
       return res.json({ items: rawItems, lines, rawText: JSON.stringify(rawItems) });
     }
