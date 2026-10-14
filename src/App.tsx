@@ -273,7 +273,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans flex flex-col">
+    <div className="relative w-full w-screen h-screen h-dvh overflow-hidden bg-slate-950 font-sans flex flex-col select-none">
       {/* Top Bar with Title, Upload Bill, Flip Camera, Settings */}
       <TopBar
         activeProvider={activeProviderName}
