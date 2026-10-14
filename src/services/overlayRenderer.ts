@@ -114,61 +114,82 @@ export class OverlayRenderer {
       ctx.fillText('AMOUNT COLUMN', colX + 6, 24);
     }
 
-    // 3. Draw Bounding Boxes for Line Items
+    // 3. Draw Bounding Boxes for Line Items with Stability Fade-out Filter
+    const now = Date.now();
+
     for (const item of options.items) {
       const screenPos = toScreen(item.bbox.x, item.bbox.y);
       const screenDim = toScreenDim(item.bbox.width, item.bbox.height);
 
       // Clamp minimum box dimensions so labels and boxes are readable
-      const boxW = Math.max(screenDim.width, 40);
-      const boxH = Math.max(screenDim.height, 22);
+      const boxW = Math.max(screenDim.width, 36);
+      const boxH = Math.max(screenDim.height, 20);
 
-      let strokeColor = '#10B981'; // Green (accepted & included)
-      let fillColor = 'rgba(16, 185, 129, 0.15)';
-      let badgeBg = '#10B981';
+      // Stability filter: smooth fade-out if frame has no detections or camera shakes
+      const ageMs = now - item.lastSeenTimestamp;
+      const opacity = Math.max(0, Math.min(1, 1 - ageMs / 3000));
+      if (opacity <= 0.05) continue;
+
+      ctx.save();
+      ctx.globalAlpha = opacity;
+
+      let strokeColor = '#00FF00'; // Bright Green (user specification: #00FF00, 2px border)
+      let fillColor = 'rgba(0, 255, 0, 0.20)';
+      let badgeBg = '#000000';
+      let textColor = '#00FF00';
 
       if (item.validationStatus === 'accepted' && item.isIncluded) {
-        strokeColor = '#10B981'; // Vibrant Green
-        fillColor = 'rgba(16, 185, 129, 0.18)';
-        badgeBg = '#059669';
+        strokeColor = '#00FF00'; // Bright #00FF00
+        fillColor = 'rgba(0, 255, 0, 0.22)';
+        badgeBg = 'rgba(0, 0, 0, 0.85)';
+        textColor = '#00FF00';
       } else if (item.validationStatus === 'uncertain') {
         strokeColor = '#F59E0B'; // Amber
-        fillColor = 'rgba(245, 158, 11, 0.15)';
-        badgeBg = '#D97706';
+        fillColor = 'rgba(245, 158, 11, 0.18)';
+        badgeBg = 'rgba(0, 0, 0, 0.85)';
+        textColor = '#FCD34D';
       } else {
         // Rejected / Excluded
-        if (!options.showDiagnostics) continue; // Don't clutter unless diagnostics requested
+        if (!options.showDiagnostics) {
+          ctx.restore();
+          continue;
+        }
         strokeColor = '#EF4444'; // Red
-        fillColor = 'rgba(239, 68, 68, 0.12)';
-        badgeBg = '#DC2626';
+        fillColor = 'rgba(239, 68, 68, 0.15)';
+        badgeBg = 'rgba(0, 0, 0, 0.85)';
+        textColor = '#F87171';
       }
 
-      // Rounded rectangle for the bounding box
-      const radius = 4;
+      // Draw bright green rectangle with 2px border
       ctx.beginPath();
-      ctx.roundRect(screenPos.x, screenPos.y, boxW, boxH, radius);
+      ctx.rect(screenPos.x, screenPos.y, boxW, boxH);
       ctx.fillStyle = fillColor;
       ctx.fill();
       ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2; // Exact 2px border as requested
       ctx.stroke();
 
-      // Price Tag Badge on top-right of box
+      // Price Tag Badge on top-right corner of each green box
       const labelText = `${options.currencySymbol || '₹'}${item.displayAmount}`;
-      ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.font = 'bold 12px "JetBrains Mono", -apple-system, monospace';
       const textMetrics = ctx.measureText(labelText);
       const badgeW = textMetrics.width + 10;
       const badgeH = 18;
-      const badgeX = Math.min(screenPos.x + boxW - badgeW, clientWidth - badgeW - 4);
-      const badgeY = Math.max(screenPos.y - badgeH - 2, 4);
+      const badgeX = Math.min(screenPos.x + boxW - badgeW, clientWidth - badgeW - 2);
+      const badgeY = Math.max(screenPos.y - badgeH - 2, 2);
 
       ctx.beginPath();
       ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
       ctx.fillStyle = badgeBg;
       ctx.fill();
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = textColor;
       ctx.fillText(labelText, badgeX + 5, badgeY + 13);
+
+      ctx.restore();
     }
 
     ctx.restore();

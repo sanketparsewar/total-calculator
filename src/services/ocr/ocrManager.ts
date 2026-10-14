@@ -35,6 +35,14 @@ export class OcrManager {
     };
   }
 
+  public setCustomApiKey(key: string): void {
+    this.cloudProvider.setCustomApiKey(key);
+    if (key.trim()) {
+      this.isCloudAvailable = true;
+      this.activeProvider = this.cloudProvider;
+    }
+  }
+
   public setProvider(type: 'cloud' | 'local'): boolean {
     if (type === 'cloud') {
       if (this.isCloudAvailable) {

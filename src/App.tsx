@@ -28,13 +28,13 @@ export const App: React.FC = () => {
   const trackerRef = useRef<LineItemTracker>(new LineItemTracker());
   const processorRef = useRef<FrameProcessor | null>(null);
 
-  // Configuration state
+  // Configuration state (default 1,500ms frame sampling as requested)
   const [config, setConfig] = useState<ScannerConfig>({
-    scanIntervalMs: 650,
+    scanIntervalMs: 1500,
     minConfidence: 0.60,
     columnDetectionMode: 'auto',
     manualColumnMinX: 0.55,
-    ocrProvider: 'local',
+    ocrProvider: 'cloud',
     gracePeriodMs: 4500,
     currencySymbol: '₹',
     showDiagnostics: false,
@@ -61,8 +61,8 @@ export const App: React.FC = () => {
   });
   const [documentBounds, setDocumentBounds] = useState<DocumentBounds | undefined>();
   const [columnBoundary, setColumnBoundary] = useState<ColumnBoundary | undefined>();
-  const [activeProviderName, setActiveProviderName] = useState<string>('Local OCR');
-  const [isCloudReady, setIsCloudReady] = useState<boolean>(false);
+  const [activeProviderName, setActiveProviderName] = useState<string>('Cloud Neural OCR');
+  const [isCloudReady, setIsCloudReady] = useState<boolean>(true);
 
   // Modal / Drawer States
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
@@ -76,6 +76,11 @@ export const App: React.FC = () => {
     const ocrManager = ocrManagerRef.current;
     const camera = cameraRef.current;
     const tracker = trackerRef.current;
+
+    const savedKey = localStorage.getItem('user_gemini_api_key');
+    if (savedKey) {
+      ocrManager.setCustomApiKey(savedKey);
+    }
 
     ocrManager.init().then(({ activeProvider, cloudAvailable }) => {
       setActiveProviderName(activeProvider);
@@ -276,6 +281,7 @@ export const App: React.FC = () => {
         onReset={handleResetBill}
         isPaused={isPaused}
         onTogglePause={handleTogglePause}
+        statusText={isProcessing ? 'Analyzing...' : 'Scanning...'}
       />
 
       {/* Expandable Line Items Drawer */}
@@ -308,6 +314,11 @@ export const App: React.FC = () => {
         config={config}
         onUpdateConfig={(newConf) => setConfig((prev) => ({ ...prev, ...newConf }))}
         isCloudReady={isCloudReady}
+        onUpdateApiKey={(k) => {
+          ocrManagerRef.current.setCustomApiKey(k);
+          setIsCloudReady(true);
+          setActiveProviderName(ocrManagerRef.current.getActiveProviderName());
+        }}
       />
 
       {/* Benchmark Sample Bills Modal */}

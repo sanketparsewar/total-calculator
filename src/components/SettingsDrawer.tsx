@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScannerConfig } from '../types/scanner';
-import { X, Sliders, Shield, Cpu, HelpCircle } from 'lucide-react';
+import { X, Sliders, Shield, Cpu } from 'lucide-react';
 
 interface SettingsDrawerProps {
   isOpen: boolean;
@@ -8,6 +8,7 @@ interface SettingsDrawerProps {
   config: ScannerConfig;
   onUpdateConfig: (newConfig: Partial<ScannerConfig>) => void;
   isCloudReady: boolean;
+  onUpdateApiKey?: (key: string) => void;
 }
 
 export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
@@ -16,6 +17,7 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
   config,
   onUpdateConfig,
   isCloudReady,
+  onUpdateApiKey,
 }) => {
   if (!isOpen) return null;
 
@@ -40,6 +42,40 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
 
         {/* Settings Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5 text-sm">
+          {/* Gemini API Key Input */}
+          <div className="p-3.5 bg-slate-950/70 rounded-2xl border border-slate-800">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
+              <span className="flex items-center space-x-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>Google Gemini API Key</span>
+              </span>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-emerald-400 hover:underline font-semibold"
+              >
+                Get Free Key ↗
+              </a>
+            </label>
+            <input
+              type="password"
+              placeholder="Paste GEMINI_API_KEY (starts with AIzaSy... or AQ...)"
+              defaultValue={localStorage.getItem('user_gemini_api_key') || ''}
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                localStorage.setItem('user_gemini_api_key', val);
+                if (onUpdateApiKey) {
+                  onUpdateApiKey(val);
+                }
+              }}
+              className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+            />
+            <p className="text-[10px] text-slate-400 mt-1">
+              Used automatically for AI Vision frame sampling (1,500 requests/day 100% free).
+            </p>
+          </div>
+
           {/* OCR Engine Selection */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
@@ -75,16 +111,10 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   {!isCloudReady && <span className="text-[10px] text-amber-500">No Key</span>}
                 </div>
                 <div className="text-[11px] text-slate-400 mt-1">
-                  {isCloudReady ? 'Google / OpenAI Vision' : 'Configure in .env'}
+                  {isCloudReady ? 'Gemini 2.5/3.8 Flash' : 'Enter key above or in .env'}
                 </div>
               </button>
             </div>
-            {!isCloudReady && (
-              <p className="text-[11px] text-slate-500 mt-1.5 flex items-center space-x-1">
-                <HelpCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>To enable neural cloud OCR, add GOOGLE_VISION_API_KEY or OPENAI_API_KEY in server/.env.</span>
-              </p>
-            )}
           </div>
 
           {/* Currency Symbol */}

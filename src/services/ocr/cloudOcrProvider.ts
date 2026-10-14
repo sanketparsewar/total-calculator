@@ -7,8 +7,14 @@ export class CloudOcrProvider implements IOcrProvider {
   public description = 'Server-side neural handwriting OCR via Google Cloud Vision / OpenAI / Azure API.';
 
   private activeBackendName: string = 'Cloud Backend';
+  private customApiKey: string = '';
+
+  public setCustomApiKey(key: string): void {
+    this.customApiKey = key;
+  }
 
   public async isAvailable(): Promise<boolean> {
+    if (this.customApiKey) return true;
     try {
       const res = await fetch('/api/ocr/status', {
         headers: { 'Accept': 'application/json' },
@@ -40,7 +46,10 @@ export class CloudOcrProvider implements IOcrProvider {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ imageBase64: dataUrl }),
+        body: JSON.stringify({
+          imageBase64: dataUrl,
+          apiKey: this.customApiKey || undefined,
+        }),
         signal: controller.signal,
       });
 

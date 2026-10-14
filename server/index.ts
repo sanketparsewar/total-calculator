@@ -82,46 +82,103 @@ app.post('/api/ocr/recognize', async (req: Request, res: Response) => {
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
     // 1. Google Gemini Flash (100% Free at https://aistudio.google.com/app/apikey)
-    if (provider.id === 'gemini_vision') {
-      const apiKey = process.env.GEMINI_API_KEY;
-      const model = 'gemini-3.8-flash';
-      const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
+    if (provider.id === 'gemini_vision' || req.body.apiKey) {
+      const apiKey = req.body.apiKey || process.env.GEMINI_API_KEY;
+      const visionPrompt = `Analyze this receipt or bill image.
+Identify ONLY the individual line-item prices located in the rightmost column, stacked vertically one below another.
+Strict Exclusions:
+- Ignore dates, bill/serial numbers, invoice IDs at the top.
+- Ignore quantities (e.g. 1k, 2kg, 2NO, 50G, 500gm).
+- Ignore unit rates (if a separate "Rate" or "Price/Unit" column exists to the left of the final "Amount" column).
+- Ignore existing handwritten or printed subtotals, grand totals, advances, or deposits at the very bottom of the document.
+Return a strict JSON object with an "items" array in the following format:
+{
+  "items": [
+    {
+      "value": 125.00,
+      "box_2d": [ymin, xmin, ymax, xmax]
+    }
+  ]
+}
+Where coordinates in box_2d are integers normalized from 0 to 1000 (ymin, xmin, ymax, xmax).`;
+
+      const candidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+      let lastErrText = '';
+      let parsedResponse: any = null;
+
+      for (const model of candidateModels) {
+        try {
+          const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [
                   {
-                    text: 'Extract all handwritten and printed bill text lines from this bill image. Focus especially on the rightmost amount column and monetary values. Return valid JSON only with a "lines" array where each object has: "text" (string of the recognized line or amount), "confidence" (number 0.8 to 1.0), and "bbox": { "x": number, "y": number, "width": number, "height": number } as normalized fractions from 0.0 to 1.0 indicating position on the page.',
-                  },
-                  {
-                    inlineData: {
-                      mimeType: 'image/jpeg',
-                      data: base64Data,
-                    },
+                    parts: [
+                      { text: visionPrompt },
+                      {
+                        inlineData: {
+                          mimeType: 'image/jpeg',
+                          data: base64Data,
+                        },
+                      },
+                    ],
                   },
                 ],
-              },
-            ],
-            generationConfig: {
-              responseMimeType: 'application/json',
-            },
-          }),
-        }
-      );
+                generationConfig: {
+                  responseMimeType: 'application/json',
+                },
+              }),
+            }
+          );
 
-      if (!geminiRes.ok) {
-        const errText = await geminiRes.text();
-        return res.status(geminiRes.status).json({ error: 'Gemini Vision API error', details: errText });
+          if (!geminiRes.ok) {
+            lastErrText = await geminiRes.text();
+            continue; // Try next fallback model
+          }
+
+          const gData = await geminiRes.json();
+          const content = gData.candidates?.[0]?.content?.parts?.[0]?.text;
+          parsedResponse = JSON.parse(content || '{}');
+          break; // Succeeded!
+        } catch (err: any) {
+          lastErrText = err.message;
+        }
       }
 
-      const gData = await geminiRes.json();
-      const content = gData.candidates?.[0]?.content?.parts?.[0]?.text;
-      const parsed = JSON.parse(content || '{}');
-      return res.json({ lines: parsed.lines || [], rawText: content || '' });
+      if (!parsedResponse) {
+        return res.status(502).json({ error: 'Gemini Vision API error', details: lastErrText });
+      }
+
+      const rawItems = parsedResponse.items || [];
+      const lines = rawItems.map((item: any) => {
+        const val = typeof item.value === 'number' ? item.value : parseFloat(item.value) || 0;
+        const box = Array.isArray(item.box_2d) && item.box_2d.length === 4
+          ? item.box_2d
+          : [0, 600, 50, 950];
+
+        const ymin = Math.max(0, Math.min(1, box[0] / 1000));
+        const xmin = Math.max(0, Math.min(1, box[1] / 1000));
+        const ymax = Math.max(0, Math.min(1, box[2] / 1000));
+        const xmax = Math.max(0, Math.min(1, box[3] / 1000));
+
+        return {
+          text: val.toFixed(2),
+          value: val,
+          confidence: 0.96,
+          box_2d: box,
+          bbox: {
+            x: xmin,
+            y: ymin,
+            width: Math.max(0.02, xmax - xmin),
+            height: Math.max(0.015, ymax - ymin),
+          },
+        };
+      });
+
+      return res.json({ items: rawItems, lines, rawText: JSON.stringify(rawItems) });
     }
 
     // 2. OpenRouter Vision (Free tier at https://openrouter.ai/keys)
