@@ -195,29 +195,64 @@ export const App: React.FC = () => {
   };
 
   const handleUploadImage = (file: File) => {
+    setStatusMessage('Loading uploaded bill image...');
+    setScannerStatus('processing');
+    setIsProcessing(true);
+
     const reader = new FileReader();
+    reader.onerror = () => {
+      setStatusMessage('Failed to read image file');
+      setScannerStatus('error');
+      setIsProcessing(false);
+    };
+
     reader.onload = () => {
       const dataUrl = reader.result as string;
       setUploadedImageSrc(dataUrl);
 
       const img = new Image();
+      img.onerror = () => {
+        setStatusMessage('Invalid image format');
+        setScannerStatus('error');
+        setIsProcessing(false);
+      };
+
       img.onload = async () => {
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        const maxDim = 1600;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0);
+          ctx.drawImage(img, 0, 0, w, h);
           // Pause camera so it doesn't overwrite uploaded image
           cameraRef.current.pause();
           setIsPaused(true);
           trackerRef.current.reset();
           setScannerStatus('processing');
-          setStatusMessage('Processing uploaded bill image...');
+          setStatusMessage('Detecting handwritten amounts with AI Vision...');
           if (processorRef.current) {
-            await processorRef.current.processCurrentFrame(canvas);
+            try {
+              await processorRef.current.processCurrentFrame(canvas);
+            } catch (err: any) {
+              setStatusMessage(`OCR Error: ${err.message || 'Detection failed'}`);
+              setScannerStatus('error');
+            }
           }
         }
+        setIsProcessing(false);
       };
       img.src = dataUrl;
     };

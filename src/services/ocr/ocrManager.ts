@@ -12,8 +12,9 @@ export class OcrManager {
   constructor() {
     this.localProvider = new LocalTesseractProvider();
     this.cloudProvider = new CloudOcrProvider();
-    // Default to local until cloud is verified
-    this.activeProvider = this.localProvider;
+    // Default to cloud neural OCR provider (Gemini Flash Vision)
+    this.activeProvider = this.cloudProvider;
+    this.isCloudAvailable = true;
   }
 
   public async init(): Promise<{ activeProvider: string; cloudAvailable: boolean }> {

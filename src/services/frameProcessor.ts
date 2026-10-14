@@ -149,7 +149,17 @@ export class FrameProcessor {
    * Process a single video frame through the computer vision and OCR pipeline.
    */
   public async processCurrentFrame(customCanvas?: HTMLCanvasElement): Promise<void> {
-    if (this.isProcessingFrame) return;
+    if (this.isProcessingFrame) {
+      if (customCanvas) {
+        let waited = 0;
+        while (this.isProcessingFrame && waited < 2000) {
+          await new Promise((r) => setTimeout(r, 100));
+          waited += 100;
+        }
+      } else {
+        return;
+      }
+    }
 
     const sourceCanvas = customCanvas || this.camera.captureFrame();
     if (!sourceCanvas) return;
